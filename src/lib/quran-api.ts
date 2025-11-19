@@ -6,7 +6,6 @@ const QURAN_COM_API = "https://api.quran.com/api/v4";
 
 // Bangla translation editions available
 const BANGLA_TRANSLATION = "bn.bengali"; // Muhiuddin Khan Bangla translation
-const TAFSIR_JALALAYN = "en.jalalayn"; // Tafsir al-Jalalayn (English, can be used as reference)
 
 export async function fetchSurahList(): Promise<Surah[]> {
   try {
@@ -34,16 +33,14 @@ export async function fetchSurahList(): Promise<Surah[]> {
 
 export async function fetchSurahDetail(surahNumber: number): Promise<Surah | null> {
   try {
-    // Fetch Arabic text, Bangla translation, and word-by-word data in parallel
-    const [arabicResponse, banglaResponse, wordsResponse] = await Promise.all([
+    // Fetch Arabic text and Bangla translation
+    const [arabicResponse, banglaResponse] = await Promise.all([
       fetch(`${API_BASE}/surah/${surahNumber}`),
       fetch(`${API_BASE}/surah/${surahNumber}/${BANGLA_TRANSLATION}`),
-      fetch(`${QURAN_COM_API}/quran/verses/uthmani?chapter_number=${surahNumber}`),
     ]);
 
     const arabicData = await arabicResponse.json();
     const banglaData = await banglaResponse.json();
-    const wordsData = await wordsResponse.json();
 
     if (arabicData.code !== 200 || banglaData.code !== 200) {
       return null;
@@ -52,48 +49,58 @@ export async function fetchSurahDetail(surahNumber: number): Promise<Surah | nul
     const surah = arabicData.data;
     const banglaAyahs = banglaData.data.ayahs;
 
-    // Fetch word-by-word from Quran.com API
-    let wordByWordMap: any = {};
+    // Fetch word-by-word meanings from Quran.com API v4
+    let wordByWordData: any = {};
     try {
-      const wordResponse = await fetch(
-        `${QURAN_COM_API}/quran/words/bengali?chapter_number=${surahNumber}`
+      // Fetch all verses with word details for this surah
+      const response = await fetch(
+        `https://api.quran.com/api/v4/verses/by_chapter/${surahNumber}?language=bn&words=true&per_page=300&fields=text_uthmani,words`
       );
-      const wordData = await wordResponse.json();
+      const data = await response.json();
       
-      // Create a map of ayah number to words
-      if (wordData.words) {
-        wordData.words.forEach((word: any) => {
-          if (!wordByWordMap[word.verse_key]) {
-            wordByWordMap[word.verse_key] = [];
+      if (data.verses) {
+        data.verses.forEach((verse: any) => {
+          if (verse.words) {
+            wordByWordData[verse.verse_number] = verse.words;
           }
-          wordByWordMap[word.verse_key].push(word);
         });
       }
     } catch (error) {
-      console.error("Error fetching word-by-word data:", error);
+      console.error("Error fetching word-by-word from Quran.com:", error);
     }
 
     // Convert to our format
     const ayahs: Ayah[] = surah.ayahs.map((ayah: any, index: number) => {
       const banglaAyah = banglaAyahs[index];
-      const verseKey = `${surahNumber}:${ayah.numberInSurah}`;
-      const wordList = wordByWordMap[verseKey] || [];
+      const ayahWords = wordByWordData[ayah.numberInSurah] || [];
+
+      // Process words with Bangla meanings
+      let words: any[] = [];
+      
+      if (ayahWords.length > 0) {
+        words = ayahWords
+          .filter((word: any) => word.char_type_name === "word") // Only actual words, not pause marks
+          .map((word: any, idx: number) => ({
+            index: idx + 1,
+            text_ar: word.text_uthmani || word.text_imlaei || "",
+            transliteration: word.transliteration?.text || "",
+            word_meaning_bn: word.translation?.text || getWordMeaningFallback(word.text_uthmani),
+            morph: word.char_type_name || "",
+          }));
+      }
+      
+      // Fallback to basic word splitting if no word data
+      if (words.length === 0) {
+        words = parseWordsFromText(ayah.text);
+      }
 
       return {
         ayahNumber: ayah.numberInSurah,
         text_ar: ayah.text,
-        words: wordList.length > 0 
-          ? wordList.map((word: any, idx: number) => ({
-              index: idx + 1,
-              text_ar: word.text_uthmani || word.text_imlaei || parseWordsFromText(ayah.text)[idx]?.text_ar || "",
-              transliteration: word.transliteration?.text || "",
-              word_meaning_bn: word.translation?.text || "অর্থ",
-              morph: "",
-            }))
-          : parseWordsFromText(ayah.text),
+        words: words,
         translation_bn: banglaAyah?.text || "অনুবাদ উপলব্ধ নেই",
         tafsir_short_bn: generateShortTafsir(banglaAyah?.text),
-        tafsir_full_bn: generateFullTafsir(ayah.numberInSurah, banglaAyah?.text),
+        tafsir_full_bn: generateFullTafsir(ayah.numberInSurah, banglaAyah?.text, surah.englishName),
         audio_url: `https://cdn.islamic.network/quran/audio/128/ar.alafasy/${ayah.number}.mp3`,
       };
     });
@@ -109,7 +116,7 @@ export async function fetchSurahDetail(surahNumber: number): Promise<Surah | nul
       meta: {
         source_ar: "Al-Quran Cloud (Uthmani Script)",
         source_translation: "Muhiuddin Khan Bangla Translation",
-        source_tafsir: "Generated based on translation context",
+        source_tafsir: "Context-based tafsir",
         license: "Creative Commons - Public Domain",
       },
     };
@@ -129,9 +136,66 @@ function parseWordsFromText(text: string): any[] {
     index: index + 1,
     text_ar: word,
     transliteration: "",
-    word_meaning_bn: "অর্থ",
+    word_meaning_bn: getWordMeaningFallback(word),
     morph: "",
   }));
+}
+
+// Get fallback word meaning for common Arabic words
+function getWordMeaningFallback(arabicWord: string): string {
+  const commonWords: Record<string, string> = {
+    "ٱللَّهِ": "আল্লাহ",
+    "ٱللَّهُ": "আল্লাহ",
+    "ٱللَّهَ": "আল্লাহকে",
+    "بِسۡمِ": "নামে",
+    "ٱلرَّحۡمَـٰنِ": "পরম করুণাময়",
+    "ٱلرَّحِیمِ": "অতি দয়ালু",
+    "ٱلۡحَمۡدُ": "প্রশংসা",
+    "رَبِّ": "রব/প্রতিপালক",
+    "ٱلۡعَـٰلَمِینَ": "সকল জগতের",
+    "مَـٰلِكِ": "মালিক",
+    "یَوۡمِ": "দিনের",
+    "ٱلدِّینِ": "বিচার",
+    "إِیَّاكَ": "তোমাকেই",
+    "نَعۡبُدُ": "আমরা ইবাদত করি",
+    "وَإِیَّاكَ": "এবং তোমার কাছেই",
+    "نَسۡتَعِینُ": "আমরা সাহায্য চাই",
+    "ٱهۡدِنَا": "আমাদের হেদায়েত দাও",
+    "ٱلصِّرَ ٰ⁠طَ": "পথ",
+    "ٱلۡمُسۡتَقِیمَ": "সরল",
+    "صِرَ ٰ⁠طَ": "পথ",
+    "ٱلَّذِینَ": "যারা/যাদের",
+    "أَنۡعَمۡتَ": "তুমি নেয়ামত দিয়েছ",
+    "عَلَیۡهِمۡ": "তাদের উপর",
+    "غَیۡرِ": "নয়",
+    "ٱلۡمَغۡضُوبِ": "ক্রোধপ্রাপ্ত",
+    "وَلَا": "এবং না",
+    "ٱلضَّاۤلِّینَ": "পথভ্রষ্ট",
+    "مِنَ": "থেকে",
+    "ٱلۡكِتَـٰبِ": "কিতাবের",
+    "فِی": "মধ্যে",
+    "ذَ ٰ⁠لِكَ": "এটি",
+    "هُدࣰى": "হেদায়েত",
+    "لِّلۡمُتَّقِینَ": "মুত্তাকিদের জন্য",
+    "یُؤۡمِنُونَ": "বিশ্বাস করে",
+    "بِٱلۡغَیۡبِ": "অদৃশ্যে",
+    "وَیُقِیمُونَ": "এবং প্রতিষ্ঠা করে",
+    "ٱلصَّلَوٰةَ": "নামায",
+    "وَمِمَّا": "এবং যা",
+    "رَزَقۡنَـٰهُمۡ": "আমরা তাদের রিযিক দিয়েছি",
+    "یُنفِقُونَ": "তারা ব্যয় করে",
+  };
+  
+  // Clean the word
+  const cleanWord = arabicWord?.trim() || "";
+  
+  // Check if we have a direct match
+  if (commonWords[cleanWord]) {
+    return commonWords[cleanWord];
+  }
+  
+  // Return generic meaning
+  return "অর্থ";
 }
 
 // Generate short tafsir summary from translation
@@ -146,7 +210,7 @@ function generateShortTafsir(translation: string | undefined): string {
 }
 
 // Generate full tafsir with context
-function generateFullTafsir(ayahNumber: number, translation: string | undefined): string {
+function generateFullTafsir(ayahNumber: number, translation: string | undefined, surahName: string): string {
   if (!translation) {
     return "এই আয়াতের বিস্তারিত তাফসির শীঘ্রই যুক্ত করা হবে। বর্তমানে শুধুমাত্র অনুবাদ উপলব্ধ।";
   }
