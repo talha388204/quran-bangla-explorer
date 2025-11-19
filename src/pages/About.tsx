@@ -53,12 +53,28 @@ const About = () => {
               <div className="border-l-4 border-primary pl-4">
                 <h3 className="font-semibold mb-1">আরবি পাঠ্য</h3>
                 <p className="text-sm text-muted-foreground">{ATTRIBUTION.arabic}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  উৎস: Tanzil/Al-Quran Cloud (উসমানি লিপি)
+                </p>
               </div>
 
               <div className="border-l-4 border-primary pl-4">
                 <h3 className="font-semibold mb-1 bangla-text">বাংলা অনুবাদ</h3>
                 <p className="text-sm text-muted-foreground bangla-text">
                   {ATTRIBUTION.translation}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 bangla-text">
+                  অনুবাদক: মুহিউদ্দীন খান (Al-Quran Cloud API এর মাধ্যমে)
+                </p>
+              </div>
+
+              <div className="border-l-4 border-primary pl-4">
+                <h3 className="font-semibold mb-1 bangla-text">শব্দ অর্থ</h3>
+                <p className="text-sm text-muted-foreground bangla-text">
+                  {ATTRIBUTION.wordByWord}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 bangla-text">
+                  উপলব্ধ হলে Quran.com API থেকে প্রদর্শিত
                 </p>
               </div>
 
@@ -67,11 +83,14 @@ const About = () => {
                 <p className="text-sm text-muted-foreground bangla-text">
                   {ATTRIBUTION.tafsir}
                 </p>
+                <p className="text-xs text-muted-foreground mt-1 bangla-text">
+                  বিস্তারিত তাফসিরের জন্য অনুমোদিত তাফসির গ্রন্থ দেখুন
+                </p>
               </div>
 
-              <div className="bg-warning/10 border border-warning/20 rounded-lg p-4 mt-4">
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 mt-4">
                 <p className="text-sm bangla-text text-foreground">
-                  ⚠️ <strong>গুরুত্বপূর্ণ নোট:</strong> {ATTRIBUTION.note}
+                  ✅ <strong>বিশ্বস্ত উৎস:</strong> {ATTRIBUTION.note}
                 </p>
               </div>
             </div>
